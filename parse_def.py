@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 from src.parser.specifig_parser import HeaderParser
 from src.parser.specifig_parser import BlockParserNoEnd
@@ -72,7 +73,7 @@ class DefParser:
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--def_path', type=str, default='test_data/complete.5.8.def', help='Path to the DEF file')
-parser.add_argument('--output_dir', type=str, default='./tmp', help='Path to the output file')
+parser.add_argument('--output_dir', type=str, default='temp', help='Path to the output file')
 args = parser.parse_args()
 def_path = args.def_path
 output_dir = args.output_dir

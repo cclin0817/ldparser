@@ -14,7 +14,7 @@ from pprint import pprint
 import argparse
 parser = argparse.ArgumentParser(description='Parse LEF file and extract cell information')
 parser.add_argument('--lef_path', type=str, default='test_data/complete.5.8.lef', help='Path to the LEF file')
-parser.add_argument('--output_dir', type=str, default='cell_dict.json', help='Path to the output JSON file')
+parser.add_argument('--output_dir', type=str, default='temp', help='Path to the output JSON file')
 args = parser.parse_args()
 
 lef_path = args.lef_path
@@ -68,6 +68,7 @@ def get_cell_dict(lef_path):
     print("Parsing LEF file...")
     parser = LEFParser()
     result = parser.parse_file(lef_file)
+    print(result)
     cell_dict = let2format(result)
     return cell_dict
 

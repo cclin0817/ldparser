@@ -10,7 +10,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from old_lef_parser import LEFParser
+from lef_parser import LEFParser
 
 def extract_macro_hierarchy(lef_file_path):
     """

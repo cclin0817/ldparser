@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 # Fix import for relative imports
 import sys
 sys.path.append('../src')
-from old_lef_parser import LEFParser
+from lef_parser import LEFParser
 
 def get_macro_hierarchy(lef_file, macro_name):
     """
