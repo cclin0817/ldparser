@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-#!/usr/bin/env python3
 """
 LEF Pin Shape Visualizer with Transparency and Cell Boundary
 
@@ -785,9 +784,6 @@ class LEFVisualizer:
         # Draw pins
         for pin_data in self.pins_data:
             pin_name = pin_data['name']
-            pin_center_x = 0
-            pin_center_y = 0
-            shape_count = 0
 
             for shape in pin_data['shapes']:
                 layer = shape['layer']
@@ -799,6 +795,10 @@ class LEFVisualizer:
                 color = self.layer_colors.get(layer, '#888888')
                 stipple = self.layer_stipples.get(layer, 'gray25')
 
+                # Variables to store shape center for label placement
+                shape_center_x = None
+                shape_center_y = None
+
                 if shape['type'] == 'RECT':
                     x1, y1, x2, y2 = shape['coords']
                     canvas_coords = self.to_canvas_coords([x1, y1, x2, y2])
@@ -807,9 +807,8 @@ class LEFVisualizer:
                                                 stipple=stipple,
                                                 outline='black',
                                                 width=1)
-                    pin_center_x += (canvas_coords[0] + canvas_coords[2]) / 2
-                    pin_center_y += (canvas_coords[1] + canvas_coords[3]) / 2
-                    shape_count += 1
+                    shape_center_x = (canvas_coords[0] + canvas_coords[2]) / 2
+                    shape_center_y = (canvas_coords[1] + canvas_coords[3]) / 2
 
                 elif shape['type'] == 'POLYGON':
                     canvas_coords = self.to_canvas_coords(shape['coords'])
@@ -818,37 +817,34 @@ class LEFVisualizer:
                                               stipple=stipple,
                                               outline='black',
                                               width=1)
-                    # Calculate center
-                    for i in range(0, len(canvas_coords), 2):
-                        pin_center_x += canvas_coords[i]
-                        pin_center_y += canvas_coords[i + 1]
-                    shape_count += len(canvas_coords) // 2
+                    # Calculate polygon center
+                    x_sum = sum(canvas_coords[i] for i in range(0, len(canvas_coords), 2))
+                    y_sum = sum(canvas_coords[i] for i in range(1, len(canvas_coords), 2))
+                    num_points = len(canvas_coords) // 2
+                    shape_center_x = x_sum / num_points
+                    shape_center_y = y_sum / num_points
 
                 elif shape['type'] == 'PATH':
                     canvas_coords = self.to_canvas_coords(shape['coords'])
                     self.canvas.create_line(*canvas_coords,
                                            fill=color,
                                            width=3)
-                    pin_center_x += (canvas_coords[0] + canvas_coords[-2]) / 2
-                    pin_center_y += (canvas_coords[1] + canvas_coords[-1]) / 2
-                    shape_count += 1
+                    shape_center_x = (canvas_coords[0] + canvas_coords[-2]) / 2
+                    shape_center_y = (canvas_coords[1] + canvas_coords[-1]) / 2
 
-            # Draw pin name at center of shapes with white background for visibility
-            if shape_count > 0:
-                pin_center_x /= shape_count
-                pin_center_y /= shape_count
-
-                # Draw white background rectangle for text
-                text_bbox = self.canvas.create_text(pin_center_x, pin_center_y,
-                                       text=pin_name, font=('Arial', 8, 'bold'),
-                                       fill='blue')
-                bbox = self.canvas.bbox(text_bbox)
-                if bbox:
-                    self.canvas.create_rectangle(bbox[0]-2, bbox[1]-1, bbox[2]+2, bbox[3]+1,
-                                                 fill='white', outline='')
-                    self.canvas.create_text(pin_center_x, pin_center_y,
+                # Draw pin name at this shape's center with white background for visibility
+                if shape_center_x is not None and shape_center_y is not None:
+                    # Draw white background rectangle for text
+                    text_bbox = self.canvas.create_text(shape_center_x, shape_center_y,
                                            text=pin_name, font=('Arial', 8, 'bold'),
                                            fill='blue')
+                    bbox = self.canvas.bbox(text_bbox)
+                    if bbox:
+                        self.canvas.create_rectangle(bbox[0]-2, bbox[1]-1, bbox[2]+2, bbox[3]+1,
+                                                     fill='white', outline='')
+                        self.canvas.create_text(shape_center_x, shape_center_y,
+                                               text=pin_name, font=('Arial', 8, 'bold'),
+                                               fill='blue')
 
     def draw_cell_boundary(self):
         """Draw the cell boundary rectangle with dimensions, accounting for ORIGIN"""
@@ -1009,3 +1005,4 @@ if __name__ == "__main__":
 
     # Uncomment below to run programmatic example instead:
     # example_programmatic_access()
+
