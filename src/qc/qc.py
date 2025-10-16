@@ -329,28 +329,57 @@ class QualityController:
     def transform_def_lef_data(self, def_data: Dict[str, Any], lef_data: Dict[str, Any]) -> tuple:
         """
         Transform DEF and LEF data into a more usable format
-        
+    
         Args:
-            def_data: Parsed DEF file data
-        
+            def_data: Parsed DEF file data (from pickle)
+            lef_data: Parsed LEF file data (from pickle)
+    
+        Returns:
+            tuple: (transformed_def_data, transformed_lef_data)
         """
-
-        component_count = len([ele for ele in def_data['id2instanceInfo'].keys()])
-        net_count = len([ele for ele in def_data['id2NetInfo'].keys()])
-
+    
         new_def_data = {}
-        if [def_data['id2instanceInfo'][ele] for ele in def_data['id2instanceInfo'].keys()]:
-            new_def_data['COMPONENTS'] = [def_data['id2instanceInfo'][ele] for ele in def_data['id2instanceInfo'].keys()]
+    
+        # Process COMPONENTS section
+        if 'id2instanceInfo' in def_data and def_data['id2instanceInfo']:
+            new_def_data['COMPONENTS'] = [
+                def_data['id2instanceInfo'][ele]
+                for ele in def_data['id2instanceInfo'].keys()
+            ]
+            logger.info(f"Transformed {len(new_def_data['COMPONENTS'])} components")
         else:
-            new_def_data['COMPONENTS'] = None
-
-        if [def_data['id2NetInfo'][ele] for ele in def_data['id2NetInfo'].keys()]:
-            new_def_data['NETS'] = [def_data['id2NetInfo'][ele] for ele in def_data['id2NetInfo'].keys()]
+            new_def_data['COMPONENTS'] = []
+            logger.warning("No COMPONENTS information found in DEF data")
+    
+        # Process NETS section (may not exist in placement-only DEF files)
+        if 'id2NetInfo' in def_data and def_data['id2NetInfo']:
+            new_def_data['NETS'] = [
+                def_data['id2NetInfo'][ele]
+                for ele in def_data['id2NetInfo'].keys()
+            ]
+            logger.info(f"Transformed {len(new_def_data['NETS'])} nets")
         else:
-            new_def_data['NETS'] = None
-
-        new_lef_data = lef_data['cell_dict']
-
+            new_def_data['NETS'] = []
+            logger.info("No NETS information in DEF data (placement-only DEF file)")
+    
+        # Store header information including UNITS
+        if 'header' in def_data:
+            new_def_data['HEADER'] = def_data['header']
+            if 'units' in def_data['header']:
+                units_per_micron = def_data['header']['units']['database_units_per_micron']
+                logger.info(f"DEF UNITS: {units_per_micron} database units per micron")
+        else:
+            logger.warning("No header information found in DEF data")
+            new_def_data['HEADER'] = {}
+    
+        # Process LEF data
+        if 'cell_dict' in lef_data:
+            new_lef_data = lef_data['cell_dict']
+            logger.info(f"Transformed {len(new_lef_data)} cells from LEF")
+        else:
+            new_lef_data = {}
+            logger.error("No cell_dict found in LEF data")
+    
         return new_def_data, new_lef_data
 
 def main():
