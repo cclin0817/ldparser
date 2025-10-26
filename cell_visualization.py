@@ -1,79 +1,13 @@
 #!/usr/bin/env python3
 """
-LEF Pin Shape Visualizer with Transparency and Cell Boundary
+LEF Pin Shape Visualizer with Pin Selection
 
-Visualizes standard cell pin shapes from LEF files with:
-- Transparent/stippled layers for visibility
-- Different stipple patterns per metal layer
-- Cell boundary display
-- Dimension annotations
-
-HOW TO ACCESS PIN SHAPE INFORMATION:
-====================================
-
-The LEFVisualizer class provides several methods to access pin shape data:
-
-1. Get all pin names:
-   pin_names = app.get_all_pin_names()
-   # Returns: ['VDD', 'VSS', 'A', 'Z', ...]
-
-2. Get specific pin shape info:
-   pin_data = app.get_pin_shape_info('VDD')
-   # Returns: {
-   #     'name': 'VDD',
-   #     'shapes': [
-   #         {'type': 'RECT', 'layer': 'M1', 'coords': [x1, y1, x2, y2]},
-   #         {'type': 'POLYGON', 'layer': 'M2', 'coords': [x1, y1, x2, y2, ...]},
-   #         ...
-   #     ]
-   # }
-
-3. Get all pins info:
-   all_pins = app.get_pin_shape_info()  # No argument = all pins
-   # Returns: list of pin dictionaries
-
-4. Get pin layers:
-   layers = app.get_pin_layers('VDD')
-   # Returns: ['M1', 'M2', ...]
-
-5. Get pin bounding box:
-   bbox = app.get_pin_bounding_box('VDD')
-   # Returns: (min_x, min_y, max_x, max_y)
-
-6. Print pin info to console:
-   app.print_pin_info('VDD')  # Specific pin
-   app.print_pin_info()       # All pins
-
-7. Export all data to dictionary:
-   data = app.export_pin_shapes_to_dict()
-   # Returns complete cell and pin data structure
-
-8. Access raw pin data directly:
-   app.pins_data  # List of all pin dictionaries
-   app.current_cell  # Current cell data from LEF parser
-   app.cell_size  # (width, height) tuple
-   app.cell_origin  # (x, y) tuple or None
-
-EXAMPLE USAGE:
-=============
-
-# After loading a LEF file and selecting a cell:
-for pin_name in app.get_all_pin_names():
-    print(f"Pin: {pin_name}")
-
-    # Get all shapes for this pin
-    pin_info = app.get_pin_shape_info(pin_name)
-    for shape in pin_info['shapes']:
-        if shape['type'] == 'RECT':
-            x1, y1, x2, y2 = shape['coords'][:4]
-            print(f"  {shape['layer']}: Rectangle from ({x1}, {y1}) to ({x2}, {y2})")
-        elif shape['type'] == 'POLYGON':
-            print(f"  {shape['layer']}: Polygon with {len(shape['coords'])//2} vertices")
-
-    # Get bounding box
-    bbox = app.get_pin_bounding_box(pin_name)
-    if bbox:
-        print(f"  Bounding box: {bbox}")
+CHANGES ADDED:
+- Pin selection section in left panel (below layer controls)
+- Checkboxes to select/deselect individual pins
+- "Select All Pins" / "Deselect All Pins" buttons
+- Combined filtering: shows only selected pins on selected layers
+- Unselected pins are hidden completely
 """
 
 import tkinter as tk
@@ -105,9 +39,10 @@ class LEFVisualizer:
         self.layer_colors = {}
         self.layer_vars = {}
         self.layer_stipples = {}
+        self.pin_vars = {}  # NEW: Track pin selection states
         self.pins_data = []
-        self.cell_size = None  # Store cell size (width, height)
-        self.cell_origin = None  # Store cell origin (x, y)
+        self.cell_size = None
+        self.cell_origin = None
 
         # Visualization parameters
         self.canvas_width = 800
@@ -145,13 +80,17 @@ class LEFVisualizer:
         content_frame = ttk.Frame(self.root)
         content_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # Left panel - Layer controls
-        left_panel = ttk.LabelFrame(content_frame, text="Layer Controls", padding="10")
+        # Left panel - Layer and Pin controls
+        left_panel = ttk.Frame(content_frame)
         left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
 
+        # === LAYER CONTROLS SECTION ===
+        layer_panel = ttk.LabelFrame(left_panel, text="Layer Controls", padding="10")
+        layer_panel.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(0, 5))
+
         # Scrollable layer list
-        layer_canvas = tk.Canvas(left_panel, width=250, height=600)
-        layer_scrollbar = ttk.Scrollbar(left_panel, orient="vertical",
+        layer_canvas = tk.Canvas(layer_panel, width=250, height=300)
+        layer_scrollbar = ttk.Scrollbar(layer_panel, orient="vertical",
                                        command=layer_canvas.yview)
         self.layer_frame = ttk.Frame(layer_canvas)
 
@@ -163,21 +102,53 @@ class LEFVisualizer:
                                                          window=self.layer_frame,
                                                          anchor='nw')
 
-        def configure_scroll_region(event):
+        def configure_layer_scroll_region(event):
             layer_canvas.configure(scrollregion=layer_canvas.bbox("all"))
 
-        self.layer_frame.bind("<Configure>", configure_scroll_region)
+        self.layer_frame.bind("<Configure>", configure_layer_scroll_region)
 
         # Buttons for layer control
-        button_frame = ttk.Frame(left_panel)
-        button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        layer_button_frame = ttk.Frame(layer_panel)
+        layer_button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
 
-        ttk.Button(button_frame, text="Select All",
+        ttk.Button(layer_button_frame, text="Select All",
                   command=self.select_all_layers).pack(side=tk.LEFT, padx=2)
-        ttk.Button(button_frame, text="Deselect All",
+        ttk.Button(layer_button_frame, text="Deselect All",
                   command=self.deselect_all_layers).pack(side=tk.LEFT, padx=2)
-        ttk.Button(button_frame, text="Pin Info",
+        ttk.Button(layer_button_frame, text="Pin Info",
                   command=self.show_pin_info_dialog).pack(side=tk.LEFT, padx=2)
+
+        # === NEW: PIN SELECTION SECTION ===
+        pin_panel = ttk.LabelFrame(left_panel, text="Pin Selection", padding="10")
+        pin_panel.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # Scrollable pin list
+        pin_canvas = tk.Canvas(pin_panel, width=250, height=300)
+        pin_scrollbar = ttk.Scrollbar(pin_panel, orient="vertical",
+                                     command=pin_canvas.yview)
+        self.pin_frame = ttk.Frame(pin_canvas)
+
+        pin_canvas.configure(yscrollcommand=pin_scrollbar.set)
+        pin_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        pin_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        pin_canvas_window = pin_canvas.create_window((0, 0),
+                                                     window=self.pin_frame,
+                                                     anchor='nw')
+
+        def configure_pin_scroll_region(event):
+            pin_canvas.configure(scrollregion=pin_canvas.bbox("all"))
+
+        self.pin_frame.bind("<Configure>", configure_pin_scroll_region)
+
+        # Buttons for pin control
+        pin_button_frame = ttk.Frame(pin_panel)
+        pin_button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+
+        ttk.Button(pin_button_frame, text="Select All Pins",
+                  command=self.select_all_pins).pack(side=tk.LEFT, padx=2)
+        ttk.Button(pin_button_frame, text="Deselect All Pins",
+                  command=self.deselect_all_pins).pack(side=tk.LEFT, padx=2)
 
         # Right panel - Canvas for visualization
         right_panel = ttk.Frame(content_frame)
@@ -273,6 +244,9 @@ class LEFVisualizer:
 
         # Update layer controls
         self.update_layer_controls()
+
+        # NEW: Update pin controls
+        self.update_pin_controls()
 
         # Draw the cell
         self.draw_cell()
@@ -448,6 +422,33 @@ class LEFVisualizer:
                                          stipple=self.layer_stipples[layer],
                                          outline='black')
 
+    # NEW: Update pin controls
+    def update_pin_controls(self):
+        """Update pin checkboxes based on current cell"""
+        # Clear existing checkboxes
+        for widget in self.pin_frame.winfo_children():
+            widget.destroy()
+
+        self.pin_vars.clear()
+
+        if not self.pins_data:
+            ttk.Label(self.pin_frame, text="No pins found").pack()
+            return
+
+        # Create checkboxes for each pin (default: all selected)
+        for pin_data in self.pins_data:
+            pin_name = pin_data['name']
+            var = tk.BooleanVar(value=True)  # Default: show all pins
+            self.pin_vars[pin_name] = var
+
+            frame = ttk.Frame(self.pin_frame)
+            frame.pack(fill=tk.X, pady=2)
+
+            cb = ttk.Checkbutton(frame, text=pin_name,
+                                variable=var,
+                                command=self.draw_cell)
+            cb.pack(side=tk.LEFT)
+
     def random_color(self):
         """Generate a random color"""
         r = random.randint(50, 255)
@@ -467,46 +468,30 @@ class LEFVisualizer:
             var.set(False)
         self.draw_cell()
 
+    # NEW: Pin selection methods
+    def select_all_pins(self):
+        """Select all pin checkboxes"""
+        for var in self.pin_vars.values():
+            var.set(True)
+        self.draw_cell()
+
+    def deselect_all_pins(self):
+        """Deselect all pin checkboxes"""
+        for var in self.pin_vars.values():
+            var.set(False)
+        self.draw_cell()
+
     def get_pin_shape_info(self, pin_name=None):
-        """
-        Get pin shape information for the current cell.
-
-        Args:
-            pin_name: Optional. If provided, returns info for specific pin.
-                     If None, returns info for all pins.
-
-        Returns:
-            Dictionary or list of dictionaries with pin shape information.
-
-        Example structure:
-        {
-            'name': 'VDD',
-            'shapes': [
-                {
-                    'type': 'RECT',
-                    'layer': 'M1',
-                    'coords': [x1, y1, x2, y2]
-                },
-                {
-                    'type': 'POLYGON',
-                    'layer': 'M2',
-                    'coords': [x1, y1, x2, y2, x3, y3, ...]
-                },
-                ...
-            ]
-        }
-        """
+        """Get pin shape information for the current cell"""
         if not self.pins_data:
             return None
 
         if pin_name:
-            # Return specific pin
             for pin_data in self.pins_data:
                 if pin_data['name'] == pin_name:
                     return pin_data
             return None
         else:
-            # Return all pins
             return self.pins_data
 
     def get_all_pin_names(self):
@@ -525,12 +510,7 @@ class LEFVisualizer:
         return sorted(list(layers))
 
     def get_pin_bounding_box(self, pin_name):
-        """
-        Get bounding box for a specific pin.
-
-        Returns:
-            Tuple (min_x, min_y, max_x, max_y) or None if pin not found
-        """
+        """Get bounding box for a specific pin"""
         pin_data = self.get_pin_shape_info(pin_name)
         if not pin_data or not pin_data['shapes']:
             return None
@@ -545,10 +525,7 @@ class LEFVisualizer:
         return (min(x_coords), min(y_coords), max(x_coords), max(y_coords))
 
     def print_pin_info(self, pin_name=None):
-        """
-        Print detailed pin shape information to console.
-        Useful for debugging and understanding pin structures.
-        """
+        """Print detailed pin shape information to console"""
         if pin_name:
             pin_data = self.get_pin_shape_info(pin_name)
             if not pin_data:
@@ -577,7 +554,6 @@ class LEFVisualizer:
                     print(f"    Width: {width:.2f}, Height: {height:.2f}")
                     print(f"    Area: {width * height:.2f}")
 
-            # Print bounding box
             bbox = self.get_pin_bounding_box(pin['name'])
             if bbox:
                 min_x, min_y, max_x, max_y = bbox
@@ -586,13 +562,7 @@ class LEFVisualizer:
                 print(f"    Total span: {max_x - min_x:.2f} x {max_y - min_y:.2f}")
 
     def export_pin_shapes_to_dict(self):
-        """
-        Export all pin shape information to a Python dictionary.
-        Useful for saving or further processing.
-
-        Returns:
-            Dictionary with cell info and all pin shapes
-        """
+        """Export all pin shape information to a Python dictionary"""
         if not self.current_cell:
             return None
 
@@ -619,16 +589,13 @@ class LEFVisualizer:
             messagebox.showinfo("No Data", "No pin data available. Please load a cell first.")
             return
 
-        # Create dialog window
         dialog = tk.Toplevel(self.root)
         dialog.title("Pin Shape Information")
         dialog.geometry("700x500")
 
-        # Create main frame
         main_frame = ttk.Frame(dialog, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Pin selection
         selection_frame = ttk.Frame(main_frame)
         selection_frame.pack(fill=tk.X, pady=(0, 10))
 
@@ -644,7 +611,6 @@ class LEFVisualizer:
         ttk.Button(selection_frame, text="Show All Pins",
                   command=lambda: self.update_pin_text(text_widget, None)).pack(side=tk.LEFT, padx=5)
 
-        # Text widget with scrollbar
         text_frame = ttk.Frame(main_frame)
         text_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -657,7 +623,6 @@ class LEFVisualizer:
         text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=text_widget.yview)
 
-        # Update button
         def update_info():
             selected_pin = pin_var.get()
             self.update_pin_text(text_widget, selected_pin)
@@ -665,11 +630,9 @@ class LEFVisualizer:
         ttk.Button(selection_frame, text="Show Selected Pin",
                   command=update_info).pack(side=tk.LEFT, padx=5)
 
-        # Export button
         ttk.Button(selection_frame, text="Export to Console",
                   command=lambda: self.print_pin_info(pin_var.get() if pin_var.get() else None)).pack(side=tk.LEFT, padx=5)
 
-        # Initial display
         update_info()
 
     def update_pin_text(self, text_widget, pin_name):
@@ -705,7 +668,6 @@ class LEFVisualizer:
                     text_widget.insert(tk.END, f"    Width: {width:.2f}, Height: {height:.2f}\n")
                     text_widget.insert(tk.END, f"    Area: {width * height:.2f}\n")
 
-            # Print bounding box
             bbox = self.get_pin_bounding_box(pin['name'])
             if bbox:
                 min_x, min_y, max_x, max_y = bbox
@@ -716,7 +678,7 @@ class LEFVisualizer:
             text_widget.insert(tk.END, "\n\n")
 
     def draw_cell(self):
-        """Draw the current cell on canvas"""
+        """Draw the current cell on canvas - MODIFIED to filter by pin selection"""
         self.canvas.delete('all')
 
         if not self.pins_data:
@@ -725,9 +687,15 @@ class LEFVisualizer:
                                    font=('Arial', 14))
             return
 
-        # Calculate bounding box
+        # Calculate bounding box (only from visible elements)
         all_coords = []
         for pin_data in self.pins_data:
+            pin_name = pin_data['name']
+
+            # NEW: Check if pin is selected
+            if pin_name in self.pin_vars and not self.pin_vars[pin_name].get():
+                continue  # Skip unselected pins
+
             for shape in pin_data['shapes']:
                 layer = shape['layer']
                 if layer in self.layer_vars and self.layer_vars[layer].get():
@@ -738,7 +706,6 @@ class LEFVisualizer:
             width, height = self.cell_size
             if self.cell_origin:
                 origin_x, origin_y = self.cell_origin
-                # Boundary corners
                 all_coords.extend([
                     -origin_x, -origin_y,
                     width - origin_x, height - origin_y
@@ -748,7 +715,7 @@ class LEFVisualizer:
 
         if not all_coords:
             self.canvas.create_text(self.canvas_width // 2, self.canvas_height // 2,
-                                   text="No visible layers",
+                                   text="No visible layers or pins",
                                    font=('Arial', 14))
             return
 
@@ -781,9 +748,13 @@ class LEFVisualizer:
         if self.cell_size:
             self.draw_cell_boundary()
 
-        # Draw pins
+        # Draw pins - MODIFIED to check pin selection
         for pin_data in self.pins_data:
             pin_name = pin_data['name']
+
+            # NEW: Skip if pin is not selected
+            if pin_name in self.pin_vars and not self.pin_vars[pin_name].get():
+                continue
 
             for shape in pin_data['shapes']:
                 layer = shape['layer']
@@ -795,7 +766,6 @@ class LEFVisualizer:
                 color = self.layer_colors.get(layer, '#888888')
                 stipple = self.layer_stipples.get(layer, 'gray25')
 
-                # Variables to store shape center for label placement
                 shape_center_x = None
                 shape_center_y = None
 
@@ -817,7 +787,6 @@ class LEFVisualizer:
                                               stipple=stipple,
                                               outline='black',
                                               width=1)
-                    # Calculate polygon center
                     x_sum = sum(canvas_coords[i] for i in range(0, len(canvas_coords), 2))
                     y_sum = sum(canvas_coords[i] for i in range(1, len(canvas_coords), 2))
                     num_points = len(canvas_coords) // 2
@@ -832,9 +801,8 @@ class LEFVisualizer:
                     shape_center_x = (canvas_coords[0] + canvas_coords[-2]) / 2
                     shape_center_y = (canvas_coords[1] + canvas_coords[-1]) / 2
 
-                # Draw pin name at this shape's center with white background for visibility
+                # Draw pin name at shape's center
                 if shape_center_x is not None and shape_center_y is not None:
-                    # Draw white background rectangle for text
                     text_bbox = self.canvas.create_text(shape_center_x, shape_center_y,
                                            text=pin_name, font=('Arial', 8, 'bold'),
                                            fill='blue')
@@ -847,15 +815,12 @@ class LEFVisualizer:
                                                fill='blue')
 
     def draw_cell_boundary(self):
-        """Draw the cell boundary rectangle with dimensions, accounting for ORIGIN"""
+        """Draw the cell boundary rectangle with dimensions"""
         if not self.cell_size:
             return
 
         width, height = self.cell_size
 
-        # Calculate boundary corners accounting for ORIGIN
-        # ORIGIN defines where (0,0) is within the SIZE boundary
-        # So the SIZE boundary goes from (-origin_x, -origin_y) to (width - origin_x, height - origin_y)
         if self.cell_origin:
             origin_x, origin_y = self.cell_origin
             x_min = -origin_x
@@ -863,24 +828,20 @@ class LEFVisualizer:
             x_max = width - origin_x
             y_max = height - origin_y
         else:
-            # No ORIGIN defined, assume (0, 0)
             x_min = 0
             y_min = 0
             x_max = width
             y_max = height
 
-        # Convert boundary coordinates to canvas coordinates
         boundary_coords = self.to_canvas_coords([x_min, y_min, x_max, y_max])
         x1, y1, x2, y2 = boundary_coords
 
-        # Draw boundary rectangle with dashed line
         self.canvas.create_rectangle(x1, y1, x2, y2,
                                      outline='red',
                                      width=2,
                                      dash=(10, 5))
 
-        # Draw dimension annotations
-        # Width dimension (bottom)
+        # Width dimension
         mid_x = (x1 + x2) / 2
         self.canvas.create_line(x1, y2 + 15, x2, y2 + 15,
                                fill='red', width=1, arrow=tk.BOTH)
@@ -889,7 +850,7 @@ class LEFVisualizer:
                                font=('Arial', 10, 'bold'),
                                fill='red')
 
-        # Height dimension (right)
+        # Height dimension
         mid_y = (y1 + y2) / 2
         self.canvas.create_line(x2 + 15, y1, x2 + 15, y2,
                                fill='red', width=1, arrow=tk.BOTH)
@@ -899,7 +860,7 @@ class LEFVisualizer:
                                fill='red',
                                angle=270)
 
-        # Draw corner labels with actual coordinates
+        # Corner labels
         self.canvas.create_text(x1 - 30, y1 - 10,
                                text=f"({x_min:.1f},{y_min:.1f})",
                                font=('Arial', 8),
@@ -909,12 +870,11 @@ class LEFVisualizer:
                                font=('Arial', 8),
                                fill='red')
 
-        # Draw origin marker if it's not (0,0)
+        # Origin marker
         if self.cell_origin and (self.cell_origin[0] != 0 or self.cell_origin[1] != 0):
             origin_canvas = self.to_canvas_coords([0, 0])
             ox, oy = origin_canvas[0], origin_canvas[1]
 
-            # Draw crosshair at origin
             self.canvas.create_line(ox - 10, oy, ox + 10, oy,
                                    fill='blue', width=2)
             self.canvas.create_line(ox, oy - 10, ox, oy + 10,
@@ -940,63 +900,8 @@ def main():
     root.mainloop()
 
 
-def example_programmatic_access():
-    """
-    Example: How to use LEFVisualizer programmatically without GUI
-
-    This function demonstrates how to load a LEF file and extract
-    pin shape information without running the GUI.
-    """
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-    from src.lef_parser import LEFParser
-
-    # Parse LEF file
-    lef_file = "test_data/complete.5.8.lef"
-    parser = LEFParser()
-    lef_data = parser.parse_file(lef_file)
-
-    # Extract macro cells
-    for block_name, block_list in lef_data['blocks'].items():
-        if block_name.startswith('MACRO_'):
-            cell_name = block_name.replace('MACRO_', '')
-            cell = block_list[0]
-
-            print(f"\nCell: {cell_name}")
-
-            # Extract cell size
-            if 'size' in cell.get('attributes', {}):
-                size = cell['attributes']['size']
-                print(f"  Size: {size['width']} x {size['height']}")
-
-            # Extract pins
-            if 'sub_blocks' in cell and 'PIN' in cell['sub_blocks']:
-                pins = cell['sub_blocks']['PIN']
-                print(f"  Pins: {len(pins)}")
-
-                for pin in pins:
-                    pin_name = pin['name']
-                    print(f"    Pin: {pin_name}")
-
-                    # Get direction
-                    direction = pin.get('attributes', {}).get('direction', 'N/A')
-                    print(f"      Direction: {direction}")
-
-                    # Count shapes
-                    if 'sub_blocks' in pin and 'PORT' in pin['sub_blocks']:
-                        shape_count = 0
-                        layers = set()
-                        for port in pin['sub_blocks']['PORT']:
-                            for line in port.get('content_lines', []):
-                                if line.strip().startswith('RECT '):
-                                    shape_count += 1
-                                elif line.strip().startswith('POLYGON '):
-                                    shape_count += 1
-                                elif line.strip().startswith('LAYER '):
-                                    layer = line.strip().split()[1].rstrip(' ;')
-                                    layers.add(layer)
-                        print(f"      Shapes: {shape_count}")
-                        print(f"      Layers: {', '.join(layers)}")
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
